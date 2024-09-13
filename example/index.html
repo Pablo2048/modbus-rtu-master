@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modbus RTU Web App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #register-value {
+            font-size: 2em;
+            margin-top: 20px;
+        }
+        #error-message {
+            color: red;
+            margin-top: 10px;
+        }
+        button, input, select {
+            padding: 10px;
+            margin: 5px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        label {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Modbus RTU Web Application</h1>
+    <div>
+        <label for="baudRate">Baud Rate:</label>
+        <input type="number" id="baudRate" value="38400">
+        <label for="dataBits">Data Bits:</label>
+        <select id="dataBits">
+            <option value="7">7</option>
+            <option value="8" selected>8</option>
+        </select>
+        <label for="stopBits">Stop Bits:</label>
+        <select id="stopBits">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+        </select>
+        <label for="parity">Parity:</label>
+        <select id="parity">
+            <option value="none" selected>None</option>
+            <option value="even">Even</option>
+            <option value="odd">Odd</option>
+        </select>
+        <label for="timeout">Timeout (ms):</label>
+        <input type="number" id="timeout" value="150">
+    </div>
+    <button id="connect-btn">Připojit k sériovému portu</button>
+    <div id="register-value">Hodnota registru: <span id="value">N/A</span></div>
+    <div id="error-message"></div>
+
+    <script src="../src/modbus-rtu-master.js"></script>
+    <script>
+        let modbus;
+        const connectButton = document.getElementById('connect-btn');
+        const valueDisplay = document.getElementById('value');
+        const errorDisplay = document.getElementById('error-message');
+        let intervalId = null;
+
+        // Funkce pro získání hodnot z formuláře
+        function getConfig() {
+            return {
+                baudRate: parseInt(document.getElementById('baudRate').value),
+                dataBits: parseInt(document.getElementById('dataBits').value),
+                stopBits: parseInt(document.getElementById('stopBits').value),
+                parity: document.getElementById('parity').value,
+                timeout: parseInt(document.getElementById('timeout').value),
+            };
+        }
+
+        // Funkce pro aktualizaci hodnoty registru každých 5 sekund
+        async function updateRegisterValue() {
+            try {
+                // Čtení registru s adresou 0x0000 z zařízení s ID 0x19
+                const values = await modbus.readInputRegisters(0x19, 0x0000, 3);
+
+                if (values && values.length > 0) {
+                    // Zobrazí hodnotu prvního (a jediného) registru
+                    const registerValue = values[0];
+                    valueDisplay.textContent = registerValue;
+                    errorDisplay.textContent = ''; // Vymazat případné staré chyby
+                } else {
+                    console.error('Neplatná odpověď:', values);
+                    valueDisplay.textContent = 'Error';
+                    errorDisplay.textContent = 'Invalid response received.';
+                }
+            } catch (error) {
+                console.error('Chyba při čtení registru:', error);
+                valueDisplay.textContent = 'Error';
+                errorDisplay.textContent = error.message || 'Unknown error occurred.';
+            }
+        }
+
+        // Připojení k sériovému portu a spuštění čtení
+        connectButton.addEventListener('click', async () => {
+            const config = getConfig();
+            modbus = new ModbusRTUMaster(config);
+            await modbus.connect();
+            if (intervalId === null) {
+                intervalId = setInterval(updateRegisterValue, 5000); // Každých 5 sekund
+            }
+        });
+    </script>
+</body>
+</html>
