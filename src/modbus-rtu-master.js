@@ -37,15 +37,23 @@ class ModbusRTUMaster {
     }
 
     async disconnect() {
-        if (this.reader) {
-            await this.reader.releaseLock();
-        }
-        if (this.writer) {
-            await this.writer.releaseLock();
-        }
-        if (this.port) {
-            await this.port.close();
-            console.log('Serial port closed');
+        console.log('Disconnect requested');
+        try {
+            if (this.reader) {
+                await this.reader.releaseLock();
+                this.reader = null;
+            }
+            if (this.writer) {
+                await this.writer.releaseLock();
+                this.writer = null;
+            }
+            if (this.port) {
+                await this.port.close();
+                this.port = null;
+                console.log('Serial port closed');
+            }
+        } catch (error) {
+            console.error('Error during disconnect:', error);
         }
     }
 
@@ -161,10 +169,16 @@ class ModbusRTUMaster {
             }
         } catch (error) {
             console.error('Error receiving response:', error.message);
+            if (this.reader) {
+                await this.reader.cancel();
+                await this.reader.releaseLock();
+                this.reader = null;
+                this.reader = this.port.readable.getReader();
+            }
             if (error.message.includes('Device has been lost')) {
                 await this.handleDeviceLost();
             }
-            return { error: error.message };
+            return { error: error.message }; // TODO: or throw error; ?
         }
     }
 
