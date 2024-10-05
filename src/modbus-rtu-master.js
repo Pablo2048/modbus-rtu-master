@@ -40,6 +40,7 @@ class ModbusRTUMaster {
         console.log('Disconnect requested');
         try {
             if (this.reader) {
+                await this.reader.cancel();
                 await this.reader.releaseLock();
                 this.reader = null;
             }
