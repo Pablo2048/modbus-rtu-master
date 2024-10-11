@@ -9,4 +9,4 @@ The module was primarily written for web applications used by my beloved wife an
 
 # Usage in Firefox Browser
 
-Unfortunately, Firefox does not natively support the WebSerial API, but luckily, you can use this plugin https://addons.mozilla.org/en-US/firefox/addon/webserial-for-firefox/ to add support. However, currently, uploading via file:// does not work, so you need to run practically any web server locally, for example, in Python using `python -m http.server`. The web application will then be available at http://localhost:8000, and WebSerial will function normally.
+Unfortunately, Firefox does not natively support the WebSerial API, but luckily, you can use this plugin https://addons.mozilla.org/en-US/firefox/addon/webserial-for-firefox/ to add support. However, uploading via file:// does not work, because of Firefox policy, so you need to run practically any web server locally, for example, in Python using `python -m http.server`. The web application will then be available at http://localhost:8000, and WebSerial will function normally.
