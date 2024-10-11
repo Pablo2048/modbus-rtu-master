@@ -55,12 +55,16 @@
             <option value="odd">Odd</option>
         </select>
         <label for="timeout">Timeout (ms):</label>
-        <input type="number" id="timeout" value="150">
+        <input type="number" id="timeout" value="300">
     </div>
     <button id="connect-btn">Připojit k sériovému portu</button>
     <div id="register-value">Hodnota registru: <span id="value">N/A</span></div>
     <div id="error-message"></div>
-
+    <script>
+        window.LOG_LEVEL = 'VERBOSE';
+        window.ENABLED_MODULES = ['*'];
+    </script>
+    <script src="https://pablo2048.github.io/trace.js/src/trace.js"></script>
     <script src="../src/modbus-rtu-master.js"></script>
     <script>
         let modbus;
@@ -92,12 +96,12 @@
                     valueDisplay.textContent = registerValue;
                     errorDisplay.textContent = ''; // Vymazat případné staré chyby
                 } else {
-                    console.error('Neplatná odpověď:', values);
+                    TRACE_ERROR("", 'Neplatná odpověď:', values);
                     valueDisplay.textContent = 'Error';
                     errorDisplay.textContent = 'Invalid response received.';
                 }
             } catch (error) {
-                console.error('Chyba při čtení registru:', error);
+                TRACE_ERROR("", 'Chyba při čtení registru:', error);
                 valueDisplay.textContent = 'Error';
                 errorDisplay.textContent = error.message || 'Unknown error occurred.';
             }
@@ -112,6 +116,7 @@
                 intervalId = setInterval(updateRegisterValue, 5000); // Každých 5 sekund
             }
         });
+        TRACE_INFO("", "Starting...");
     </script>
 </body>
 </html>
