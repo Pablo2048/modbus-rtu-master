@@ -9,21 +9,23 @@ class ModbusRTUMaster {
         this.parity = config.parity || 'none';
         this.flowControl = config.flowControl || 'none';
         this.timeout = config.timeout || 2000; // Default timeout is 2 seconds
+
+        navigator.serial.addEventListener('disconnect', (event) => {
+            TRACE_WARNING("mbrtu", 'Port disconnected, attempting to reconnect...');
+            this.handleDeviceLost();
+        });
+
+        navigator.serial.addEventListener('connect', (event) => {
+            TRACE_INFO("mbrtu", 'Device connected:', event);
+            this.reconnect();
+        });
     }
 
     async connect() {
         try {
             this.port = await navigator.serial.requestPort();
-            await this.port.open({
-                baudRate: this.baudRate,
-                dataBits: this.dataBits,
-                stopBits: this.stopBits,
-                parity: this.parity,
-                flowControl: this.flowControl
-            });
-            this.reader = this.port.readable.getReader();
-            this.writer = this.port.writable.getWriter();
-            console.log('Connected to serial port with configuration:', {
+            await this.openPort();
+            TRACE_VERBOSE("mbrtu", 'Connected to serial port with configuration:', {
                 baudRate: this.baudRate,
                 dataBits: this.dataBits,
                 stopBits: this.stopBits,
@@ -32,12 +34,24 @@ class ModbusRTUMaster {
                 timeout: this.timeout
             });
         } catch (error) {
-            console.error('Failed to open serial port:', error);
+            TRACE_ERROR("mbrtu", 'Failed to open serial port:', error);
         }
     }
 
+    async openPort() {
+        await this.port.open({
+            baudRate: this.baudRate,
+            dataBits: this.dataBits,
+            stopBits: this.stopBits,
+            parity: this.parity,
+            flowControl: this.flowControl
+        });
+        this.reader = this.port.readable.getReader();
+        this.writer = this.port.writable.getWriter();
+    }
+
     async disconnect() {
-        console.log('Disconnect requested');
+        TRACE_ERROR("mbrtu", "Disconnect.");
         try {
             if (this.reader) {
                 await this.reader.cancel();
@@ -51,11 +65,40 @@ class ModbusRTUMaster {
             if (this.port) {
                 await this.port.close();
                 this.port = null;
-                console.log('Serial port closed');
+                TRACE_INFO("mbrtu", 'Serial port closed');
             }
         } catch (error) {
-            console.error('Error during disconnect:', error);
+            TRACE_ERROR("mbrtu", 'Error during disconnect:', error);
         }
+    }
+
+    async handleDeviceLost() {
+        TRACE_WARNING("mbrtu", 'Attempting to reconnect...');
+        await this.disconnect();
+        this.reconnect();
+    }
+
+    reconnect() {
+        setTimeout(async () => {
+            try {
+                const ports = await navigator.serial.getPorts();
+                if (ports.length > 0) {
+                    this.port = ports[0];
+                    if (!this.port.readable && !this.port.writable) {
+                        await this.openPort();
+                        TRACE_INFO("mbrtu", 'Reconnected to serial port.');
+                    } else {
+                        TRACE_WARNING("mbrtu", 'Port is already open. Skipping open operation.');
+                    }
+                } else {
+                    TRACE_WARNING("mbrtu", 'Port not found, retrying...');
+                    this.reconnect();
+                }
+            } catch (error) {
+                TRACE_ERROR("mbrtu", 'Reconnect failed:', error);
+                this.reconnect();
+            }
+        }, 1000); // Retry every 1 second
     }
 
     async readHoldingRegisters(slaveId, startAddress, quantity) {
@@ -85,6 +128,7 @@ class ModbusRTUMaster {
         }
 
         const request = this.buildRequest(slaveId, functionCode, startAddress, quantity);
+        TRACE_VERBOSE("mbrtu", "Send request");
         await this.sendRequest(request);
         return await this.receiveResponse(slaveId, functionCode, quantity);
     }
@@ -121,12 +165,10 @@ class ModbusRTUMaster {
 
     async sendRequest(request) {
         await this.writer.write(request);
-        //console.log('Request sent:', request);
+        TRACE_VERBOSE("mbrtu", 'Request sent:', request);
     }
 
-    // Receiving and validating response with timeout detection and Modbus Exception Codes processing
     async receiveResponse(slaveId, functionCode, quantity) {
-        // Set the expected length of the response (slaveId, functionCode, byte count, data, CRC)
         let expectedLength = 5 + quantity * 2;
         let response = new Uint8Array(expectedLength);
         let index = 0;
@@ -140,9 +182,8 @@ class ModbusRTUMaster {
                         response.set(value, index);
                         index += value.length;
 
-                        // If an exception is detected (highest bit of the function code), set the length to 5 bytes (slaveId, functionCode, exceptionCode, CRC)
                         if (index >= 2 && (response[1] & 0x80)) {
-                            expectedLength = 5; // Override expected length in case of an exception
+                            expectedLength = 5;
                         }
                     }
                 })(),
@@ -151,25 +192,23 @@ class ModbusRTUMaster {
                 )
             ]);
 
-            // Modbus Exception Codes processing
-            if (response[1] & 0x80) { // Check if the highest bit of the function code is set
+            if (response[1] & 0x80) {
                 const exceptionCode = response[2];
                 throw new Error(`Modbus Exception Code: ${this.getExceptionMessage(exceptionCode)} (Code: ${exceptionCode})`);
             }
 
-            // Check CRC after receiving the full response
             const dataWithoutCRC = response.slice(0, index - 2);
             const receivedCRC = (response[index - 1] << 8) | response[index - 2];
             const calculatedCRC = this.calculateCRC(dataWithoutCRC);
 
             if (calculatedCRC === receivedCRC) {
-                //console.log('Received response with valid CRC:', response.slice(0, index));
+                TRACE_VERBOSE("mbrtu", 'Received response with valid CRC:', response.slice(0, index));
                 return response.slice(0, index);
             } else {
                 throw new Error(`CRC Error: Calculated CRC ${calculatedCRC} does not match received CRC ${receivedCRC}.`);
             }
         } catch (error) {
-            console.error('Error receiving response:', error.message);
+            TRACE_ERROR("mbrtu", 'Error receiving response:', error.message);
             if (this.reader) {
                 await this.reader.cancel();
                 await this.reader.releaseLock();
@@ -179,14 +218,8 @@ class ModbusRTUMaster {
             if (error.message.includes('Device has been lost')) {
                 await this.handleDeviceLost();
             }
-            return { error: error.message }; // TODO: or throw error; ?
+            throw error;
         }
-    }
-
-    async handleDeviceLost() {
-        console.warn('Attempting to reconnect...');
-        await this.disconnect();
-        await this.connect();
     }
 
     getExceptionMessage(code) {
