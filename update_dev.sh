@@ -1,15 +1,23 @@
 #!/bin/bash
 
-# Zkontroluj, jestli existuje větev development na vzdáleném repozitáři
+# Stáhni všechny větve z origin
+git fetch origin
+
+# Přepni se na main a stáhni nejnovější změny
+git checkout main
+git pull origin main
+
+# Zkontroluj, jestli existuje větev development lokálně, pokud ne, vytvoř ji
 if git show-ref --quiet refs/heads/development; then
   git checkout development
 else
   git checkout -b development origin/development
 fi
 
+# Stáhni nejnovější změny z development větve
 git pull origin development
 
-# Proveď merge z main
+# Proveď merge z main do development
 git merge main
 
 # Pushni změny do vzdálené development větve
