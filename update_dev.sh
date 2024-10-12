@@ -17,8 +17,8 @@ fi
 # Stáhni nejnovější změny z development větve
 git pull origin development
 
-# Proveď merge z main do development
-git merge main
+# Proveď merge z main do development s povolením nesouvisejících historií
+git merge main --allow-unrelated-histories
 
 # Pushni změny do vzdálené development větve
 git push origin development
