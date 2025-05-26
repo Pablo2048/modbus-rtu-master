@@ -11,25 +11,46 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            /* justify-content: center; // Adjusted for longer content */
+            /* height: 100vh; // Adjusted for longer content */
+            margin-bottom: 50px; /* Add some bottom margin */
         }
         #register-value {
             font-size: 2em;
             margin-top: 20px;
         }
-        #error-message {
-            color: red;
+        #error-message, #write-status-message {
             margin-top: 10px;
+            min-height: 20px; /* Ensure space even if empty */
         }
-        button, input, select {
-            padding: 10px;
-            margin: 5px;
-            font-size: 1em;
+        #error-message { color: red; }
+        #write-status-message { color: green; }
+        button, input, select, label {
+            padding: 8px; /* Slightly reduced padding */
+            margin: 4px; /* Slightly reduced margin */
+            font-size: 0.9em; /* Slightly reduced font size */
             cursor: pointer;
         }
         label {
-            margin-top: 10px;
+            margin-top: 8px;
+            display: inline-block; /* Keep labels aligned */
+        }
+        fieldset {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            width: auto; /* Adjust width as needed */
+            max-width: 500px; /* Max width for fieldsets */
+        }
+        legend {
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        .input-group label {
+            min-width: 120px; /* Align labels */
+        }
+        .input-group input[type="text"], .input-group input[type="number"] {
+            width: 250px; /* Adjust width of text/number inputs */
         }
     </style>
 </head>
@@ -58,8 +79,80 @@
         <input type="number" id="timeout" value="300">
     </div>
     <button id="connect-btn">Připojit k sériovému portu</button>
-    <div id="register-value">Hodnota registru: <span id="value">N/A</span></div>
+    <div id="register-value">Hodnota registru (ID:25, Addr:0, Len:3): <span id="value">N/A</span></div>
     <div id="error-message"></div>
+
+    <h2>Write Operations</h2>
+    <div id="write-status-message"></div>
+
+    <fieldset>
+        <legend>Write Single Coil (FC05)</legend>
+        <div class="input-group">
+            <label for="scSlaveId">Slave ID:</label>
+            <input type="number" id="scSlaveId" value="25">
+        </div>
+        <div class="input-group">
+            <label for="scAddress">Coil Address:</label>
+            <input type="number" id="scAddress" value="0">
+        </div>
+        <div class="input-group">
+            <label for="scValue">Value (ON/OFF):</label>
+            <input type="checkbox" id="scValue" checked> (Checked = ON)
+        </div>
+        <button id="btnWriteSingleCoil">Write Single Coil</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Write Single Register (FC06)</legend>
+        <div class="input-group">
+            <label for="srSlaveId">Slave ID:</label>
+            <input type="number" id="srSlaveId" value="25">
+        </div>
+        <div class="input-group">
+            <label for="srAddress">Register Address:</label>
+            <input type="number" id="srAddress" value="1">
+        </div>
+        <div class="input-group">
+            <label for="srValue">Value (0-65535):</label>
+            <input type="number" id="srValue" value="12345" min="0" max="65535">
+        </div>
+        <button id="btnWriteSingleRegister">Write Single Register</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Write Multiple Coils (FC15)</legend>
+        <div class="input-group">
+            <label for="mcSlaveId">Slave ID:</label>
+            <input type="number" id="mcSlaveId" value="25">
+        </div>
+        <div class="input-group">
+            <label for="mcAddress">Start Address:</label>
+            <input type="number" id="mcAddress" value="10">
+        </div>
+        <div class="input-group">
+            <label for="mcValues">Values (comma-sep 0/1):</label>
+            <input type="text" id="mcValues" value="1,0,1,1,0">
+        </div>
+        <button id="btnWriteMultipleCoils">Write Multiple Coils</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Write Multiple Registers (FC16)</legend>
+        <div class="input-group">
+            <label for="mrSlaveId">Slave ID:</label>
+            <input type="number" id="mrSlaveId" value="25">
+        </div>
+        <div class="input-group">
+            <label for="mrAddress">Start Address:</label>
+            <input type="number" id="mrAddress" value="20">
+        </div>
+        <div class="input-group">
+            <label for="mrValues">Values (comma-sep 0-65535):</label>
+            <input type="text" id="mrValues" value="100,200,300,400">
+        </div>
+        <button id="btnWriteMultipleRegisters">Write Multiple Registers</button>
+    </fieldset>
+
     <script>
         window.LOG_LEVEL = 'VERBOSE';
         window.ENABLED_MODULES = ['*'];
@@ -71,6 +164,7 @@
         const connectButton = document.getElementById('connect-btn');
         const valueDisplay = document.getElementById('value');
         const errorDisplay = document.getElementById('error-message');
+        const writeStatusDisplay = document.getElementById('write-status-message');
         let intervalId = null;
 
         // Funkce pro získání hodnot z formuláře
@@ -86,37 +180,198 @@
 
         // Funkce pro aktualizaci hodnoty registru každých 5 sekund
         async function updateRegisterValue() {
+            if (!modbus || !modbus.port) { // Ensure modbus is connected
+                TRACE_VERBOSE("Read", "Modbus not connected, skipping read.");
+                return;
+            }
             try {
-                // Čtení registru s adresou 0x0000 z zařízení s ID 0x19
+                // Čtení registru s adresou 0x0000 z zařízení s ID 0x19 (dec 25)
                 const values = await modbus.readInputRegisters(0x19, 0x0000, 3);
 
                 if (values && values.length > 0) {
                     // Zobrazí hodnotu prvního (a jediného) registru
-                    const registerValue = values[0];
-                    valueDisplay.textContent = registerValue;
+                    valueDisplay.textContent = values.join(', '); // Display all read values
                     errorDisplay.textContent = ''; // Vymazat případné staré chyby
                 } else {
-                    TRACE_ERROR("", 'Neplatná odpověď:', values);
-                    valueDisplay.textContent = 'Error';
-                    errorDisplay.textContent = 'Invalid response received.';
+                    TRACE_ERROR("Read", 'Neplatná odpověď:', values);
+                    valueDisplay.textContent = 'Error/No Values';
+                    errorDisplay.textContent = 'Invalid response or no values received.';
                 }
             } catch (error) {
-                TRACE_ERROR("", 'Chyba při čtení registru:', error);
+                TRACE_ERROR("Read", 'Chyba při čtení registru:', error);
                 valueDisplay.textContent = 'Error';
-                errorDisplay.textContent = error.message || 'Unknown error occurred.';
+                errorDisplay.textContent = error.message || 'Unknown error occurred reading register.';
             }
         }
 
         // Připojení k sériovému portu a spuštění čtení
         connectButton.addEventListener('click', async () => {
             const config = getConfig();
-            modbus = new ModbusRTUMaster(config);
-            await modbus.connect();
-            if (intervalId === null) {
-                intervalId = setInterval(updateRegisterValue, 5000); // Každých 5 sekund
+            modbus = new ModbusRTUMaster(config); // Initialize or re-initialize
+            try {
+                await modbus.connect();
+                errorDisplay.textContent = 'Připojeno k portu.'; // Connected to port.
+                connectButton.textContent = 'Odpojit od sériového portu'; // Disconnect
+                if (intervalId === null) {
+                    updateRegisterValue(); // Initial read
+                    intervalId = setInterval(updateRegisterValue, 5000); // Každých 5 sekund
+                }
+            } catch (err) {
+                errorDisplay.textContent = 'Nepodařilo se připojit: ' + err.message; // Failed to connect
+                if (modbus) await modbus.disconnect(); // Clean up
+                modbus = null;
             }
         });
-        TRACE_INFO("", "Starting...");
+        
+        connectButton.addEventListener('click', async () => { // Re-binding to handle disconnect logic as well
+            if (modbus && modbus.port) { // If connected, then disconnect
+                clearInterval(intervalId);
+                intervalId = null;
+                await modbus.disconnect();
+                modbus = null;
+                connectButton.textContent = 'Připojit k sériovému portu'; // Connect
+                errorDisplay.textContent = 'Odpojeno.'; // Disconnected
+                valueDisplay.textContent = 'N/A';
+            } else { // If not connected, then connect
+                const config = getConfig();
+                modbus = new ModbusRTUMaster(config);
+                try {
+                    await modbus.connect();
+                    errorDisplay.textContent = 'Připojeno k portu.';
+                    connectButton.textContent = 'Odpojit od sériového portu';
+                    updateRegisterValue(); // Initial read
+                    intervalId = setInterval(updateRegisterValue, 5000);
+                } catch (err) {
+                    errorDisplay.textContent = 'Nepodařilo se připojit: ' + err.message;
+                    if (modbus) await modbus.disconnect();
+                    modbus = null;
+                }
+            }
+        });
+
+
+        // --- Write Single Coil (FC05) ---
+        document.getElementById('btnWriteSingleCoil').addEventListener('click', async () => {
+            if (!modbus || !modbus.port) {
+                writeStatusDisplay.textContent = 'Error: Modbus not connected.';
+                return;
+            }
+            try {
+                const slaveId = parseInt(document.getElementById('scSlaveId').value);
+                const address = parseInt(document.getElementById('scAddress').value);
+                const value = document.getElementById('scValue').checked;
+                
+                writeStatusDisplay.textContent = 'Writing Single Coil...';
+                const success = await modbus.writeSingleCoil(slaveId, address, value);
+                if (success) {
+                    writeStatusDisplay.textContent = `Success: Single Coil written at address ${address} to ${value ? 'ON' : 'OFF'}.`;
+                } else { // Should not happen if promise resolves, error should be thrown
+                    writeStatusDisplay.textContent = 'Failed: Write Single Coil returned false (unexpected).';
+                }
+            } catch (error) {
+                TRACE_ERROR("WriteSingleCoil", "Error:", error);
+                writeStatusDisplay.textContent = 'Error writing Single Coil: ' + error.message;
+            }
+        });
+
+        // --- Write Single Register (FC06) ---
+        document.getElementById('btnWriteSingleRegister').addEventListener('click', async () => {
+            if (!modbus || !modbus.port) {
+                writeStatusDisplay.textContent = 'Error: Modbus not connected.';
+                return;
+            }
+            try {
+                const slaveId = parseInt(document.getElementById('srSlaveId').value);
+                const address = parseInt(document.getElementById('srAddress').value);
+                const value = parseInt(document.getElementById('srValue').value);
+
+                if (isNaN(value) || value < 0 || value > 65535) {
+                    writeStatusDisplay.textContent = 'Error: Invalid register value. Must be 0-65535.';
+                    return;
+                }
+                
+                writeStatusDisplay.textContent = 'Writing Single Register...';
+                const success = await modbus.writeSingleRegister(slaveId, address, value);
+                if (success) {
+                    writeStatusDisplay.textContent = `Success: Single Register written at address ${address} with value ${value}.`;
+                }
+            } catch (error) {
+                TRACE_ERROR("WriteSingleRegister", "Error:", error);
+                writeStatusDisplay.textContent = 'Error writing Single Register: ' + error.message;
+            }
+        });
+
+        // --- Write Multiple Coils (FC15) ---
+        document.getElementById('btnWriteMultipleCoils').addEventListener('click', async () => {
+            if (!modbus || !modbus.port) {
+                writeStatusDisplay.textContent = 'Error: Modbus not connected.';
+                return;
+            }
+            try {
+                const slaveId = parseInt(document.getElementById('mcSlaveId').value);
+                const address = parseInt(document.getElementById('mcAddress').value);
+                const valuesStr = document.getElementById('mcValues').value;
+                const valuesArray = valuesStr.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v) && (v === 0 || v === 1));
+
+                if (valuesArray.length === 0 && valuesStr.trim() !== "") {
+                     writeStatusDisplay.textContent = 'Error: Invalid coil values. Must be comma-separated 0s or 1s.';
+                     return;
+                }
+                 if (valuesArray.length === 0 && valuesStr.trim() === "") {
+                     writeStatusDisplay.textContent = 'Error: Coil values cannot be empty.';
+                     return;
+                }
+
+                writeStatusDisplay.textContent = 'Writing Multiple Coils...';
+                const success = await modbus.writeMultipleCoils(slaveId, address, valuesArray.map(v => v === 1)); // Convert to boolean array
+                if (success) {
+                    writeStatusDisplay.textContent = `Success: ${valuesArray.length} Coils written starting at address ${address}.`;
+                }
+            } catch (error) {
+                TRACE_ERROR("WriteMultipleCoils", "Error:", error);
+                writeStatusDisplay.textContent = 'Error writing Multiple Coils: ' + error.message;
+            }
+        });
+
+        // --- Write Multiple Registers (FC16) ---
+        document.getElementById('btnWriteMultipleRegisters').addEventListener('click', async () => {
+            if (!modbus || !modbus.port) {
+                writeStatusDisplay.textContent = 'Error: Modbus not connected.';
+                return;
+            }
+            try {
+                const slaveId = parseInt(document.getElementById('mrSlaveId').value);
+                const address = parseInt(document.getElementById('mrAddress').value);
+                const valuesStr = document.getElementById('mrValues').value;
+                const valuesArray = valuesStr.split(',').map(v => parseInt(v.trim()));
+
+                if (valuesArray.some(isNaN)) {
+                    writeStatusDisplay.textContent = 'Error: Invalid register values. Must be comma-separated numbers.';
+                    return;
+                }
+                if (valuesArray.length === 0 && valuesStr.trim() === "") {
+                     writeStatusDisplay.textContent = 'Error: Register values cannot be empty.';
+                     return;
+                }
+                for (const val of valuesArray) {
+                    if (val < 0 || val > 65535) {
+                        writeStatusDisplay.textContent = `Error: Invalid register value ${val}. All values must be 0-65535.`;
+                        return;
+                    }
+                }
+                
+                writeStatusDisplay.textContent = 'Writing Multiple Registers...';
+                const success = await modbus.writeMultipleRegisters(slaveId, address, valuesArray);
+                if (success) {
+                    writeStatusDisplay.textContent = `Success: ${valuesArray.length} Registers written starting at address ${address}.`;
+                }
+            } catch (error) {
+                TRACE_ERROR("WriteMultipleRegisters", "Error:", error);
+                writeStatusDisplay.textContent = 'Error writing Multiple Registers: ' + error.message;
+            }
+        });
+
+        TRACE_INFO("Example", "Modbus RTU Web Application Example Initialized.");
     </script>
 </body>
 </html>
